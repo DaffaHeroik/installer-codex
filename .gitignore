@@ -4,9 +4,9 @@ __pycache__/
 .env
 state/
 dist/
+artifacts/
 *.pyc
 *.pyo
 *.pyd
 *.log
 *.pid
-
