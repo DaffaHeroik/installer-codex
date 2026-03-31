@@ -7,6 +7,7 @@
 - Ubuntu installer for a fresh VPS
 - `systemd` services for backend startup and tmux session bootstrapping
 - automatic `nginx` reverse proxy on port `80`
+- Firebase auto-registration and heartbeat for server discovery
 - FastAPI backend for:
   - server status
   - device-auth login start/status
@@ -27,6 +28,7 @@
   - check server health
   - import/export `~/.codex/auth.json`
 - `nginx` exposes the app on standard web port `80`, so the APK can use `http://YOUR_VPS_IP`
+- the VPS registers itself into Firebase so the APK can auto-discover it
 - If the VPS is offline, your app should show `No server available`
 
 ## Important security note
@@ -78,6 +80,11 @@ INSTALLER_CODEX_AUTH_B64_FILE=
 INSTALLER_CODEX_PUBLIC_BASE_URL=
 INSTALLER_CODEX_ENABLE_NGINX=true
 INSTALLER_CODEX_NGINX_SERVER_NAME=_
+INSTALLER_CODEX_FIREBASE_DB_URL=https://kebun-pintar-dce3e-default-rtdb.firebaseio.com
+INSTALLER_CODEX_FIREBASE_AUTH=
+INSTALLER_CODEX_FIREBASE_SERVERS_PATH=codex_servers
+INSTALLER_CODEX_FIREBASE_HEARTBEAT_SECONDS=30
+INSTALLER_CODEX_SERVER_ID=
 ```
 
 Restart after edits:
@@ -136,15 +143,15 @@ Imports a previously exported auth payload. Request body:
 
 ## Suggested mobile app flow
 
-1. App calls `GET /api/status`
-2. If the server is unreachable, show `No server available`
-3. If reachable but `auth_present` is `false`, show `Login required`
-4. User taps login
-5. App calls `POST /api/login/start`
-6. App polls `GET /api/login/status`
-7. App displays `login_url` and `device_code`
-8. User completes login in the phone browser
-9. App polls until `phase=completed`
+1. VPS heartbeat writes itself to Firebase
+2. APK fetches the server list from Firebase
+3. APK auto-picks the freshest online server
+4. If no recent server exists, show `No server available`
+5. If there are multiple servers, the user can select one manually
+6. If a server is stale or dead, the user can delete it from the Firebase list
+7. APK then calls your selected server's API for login, logout, and status actions
+
+If two servers are online at the same time, the app will auto-connect to the newest heartbeat first, but manual selection is always available in the server list.
 
 ## Default access URL
 
@@ -163,6 +170,31 @@ http://YOUR_VPS_IP:8787
 ```
 
 If your VPS provider has an external firewall panel, you still need to allow inbound `TCP 80`.
+
+## Firebase registry format
+
+Each VPS writes one entry under:
+
+```text
+https://kebun-pintar-dce3e-default-rtdb.firebaseio.com/codex_servers/<server_id>.json
+```
+
+Example payload:
+
+```json
+{
+  "server_id": "vps-main",
+  "server_name": "vps-main",
+  "server_url": "http://37.114.42.148",
+  "api_token": "change-me",
+  "status": "online",
+  "updated_at": 1774920000,
+  "availability": "connected",
+  "summary": "Codex is ready on this VPS.",
+  "auth_present": true,
+  "tmux_session_exists": true
+}
+```
 
 ## VPS migration without re-login
 

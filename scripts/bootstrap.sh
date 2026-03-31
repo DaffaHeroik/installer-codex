@@ -111,6 +111,20 @@ EOF
   log "Nginx reverse proxy is ready on port 80."
 }
 
+setup_firebase_heartbeat() {
+  if [[ -z "${INSTALLER_CODEX_FIREBASE_DB_URL:-}" ]]; then
+    log "Skipping Firebase heartbeat because INSTALLER_CODEX_FIREBASE_DB_URL is empty."
+    return 0
+  fi
+
+  install -m 0644 "$APP_ROOT/systemd/codex-firebase-heartbeat.service" /etc/systemd/system/codex-firebase-heartbeat.service
+  install -m 0755 "$APP_ROOT/scripts/firebase_heartbeat.sh" /usr/local/bin/installer-codex-firebase-heartbeat
+  systemctl daemon-reload
+  systemctl enable codex-firebase-heartbeat.service
+  systemctl restart codex-firebase-heartbeat.service
+  log "Firebase heartbeat service is running."
+}
+
 mkdir -p "$STATE_DIR" "$WORKSPACE_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -123,6 +137,7 @@ source "$ENV_FILE"
 ensure_package tmux
 ensure_package python3
 ensure_package python3-pip
+ensure_package curl
 ensure_python_venv
 "$VENV_PATH/bin/pip" install --upgrade pip
 "$VENV_PATH/bin/pip" install -r "$APP_ROOT/requirements.txt"
@@ -140,5 +155,6 @@ systemctl enable codex-session.service
 systemctl restart codex-session.service
 systemctl restart codex-backend.service
 setup_nginx
+setup_firebase_heartbeat
 
 log "Bootstrap complete."

@@ -2,14 +2,15 @@
 <resources>
     <string name="app_name">Installer Codex</string>
     <string name="app_title">Installer Codex</string>
-    <string name="server_url">Server URL</string>
-    <string name="api_token">API Token</string>
-    <string name="save_config">Save Config</string>
     <string name="refresh_status">Refresh Status</string>
+    <string name="use_selected">Use Selected</string>
+    <string name="delete_selected">Delete Selected</string>
     <string name="start_login">Start Codex Login</string>
     <string name="open_browser">Open Browser</string>
     <string name="copy_code">Copy Code</string>
     <string name="logout_switch">Log Out / Switch Account</string>
+    <string name="active_server_fmt">Active server: %1$s</string>
+    <string name="active_server_default">Active server: Connecting...</string>
     <string name="availability_fmt">Availability: %1$s</string>
     <string name="availability_default">Availability: -</string>
     <string name="summary_fmt">Summary: %1$s</string>
