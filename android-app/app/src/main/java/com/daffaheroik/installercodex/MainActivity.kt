@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
             if (isForeground && !userSelectingServer) {
                 refreshServers(showToast = false)
             }
-            handler.postDelayed(this, 7000)
+            handler.postDelayed(this, 15000)
         }
     }
 
@@ -111,7 +111,9 @@ class MainActivity : AppCompatActivity() {
             logout()
         }
 
-        refreshServers(showToast = false)
+        handler.post {
+            refreshServers(showToast = false)
+        }
     }
 
     override fun onStart() {
@@ -358,18 +360,22 @@ class MainActivity : AppCompatActivity() {
     ) {
         client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
-                onFailure?.invoke()
-                if (toastErrors) {
-                    runOnUiThread { toast("Request failed: ${e.message}") }
+                runOnUiThread {
+                    onFailure?.invoke()
+                    if (toastErrors) {
+                        toast("Request failed: ${e.message}")
+                    }
                 }
             }
 
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 response.use {
                     if (!response.isSuccessful) {
-                        onFailure?.invoke()
-                        if (toastErrors) {
-                            runOnUiThread { toast("HTTP ${response.code}") }
+                        runOnUiThread {
+                            onFailure?.invoke()
+                            if (toastErrors) {
+                                toast("HTTP ${response.code}")
+                            }
                         }
                         return
                     }
@@ -378,11 +384,16 @@ class MainActivity : AppCompatActivity() {
                         if (it == "null") "{}" else it
                     }
                     try {
-                        onSuccess(JSONObject(rawBody))
+                        val parsed = JSONObject(rawBody)
+                        runOnUiThread {
+                            onSuccess(parsed)
+                        }
                     } catch (_: Exception) {
-                        onFailure?.invoke()
-                        if (toastErrors) {
-                            runOnUiThread { toast("Invalid server response") }
+                        runOnUiThread {
+                            onFailure?.invoke()
+                            if (toastErrors) {
+                                toast("Invalid server response")
+                            }
                         }
                     }
                 }
@@ -391,9 +402,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toast(message: String) {
-        runOnUiThread {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-        }
+        if (isFinishing || isDestroyed) return
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     data class ServerItem(
