@@ -14,6 +14,7 @@ QUICK_TUNNEL_STATE_FILE="${INSTALLER_CODEX_QUICK_TUNNEL_STATE_FILE:-/opt/install
 FIREBASE_DB_URL="${INSTALLER_CODEX_FIREBASE_DB_URL:-}"
 FIREBASE_SERVERS_PATH="${INSTALLER_CODEX_FIREBASE_SERVERS_PATH:-codex_servers}"
 SERVER_ID="${INSTALLER_CODEX_SERVER_ID:-}"
+RETRY_SECONDS="${INSTALLER_CODEX_DOCTOR_RETRY_SECONDS:-90}"
 
 if [[ -z "$SERVER_ID" ]]; then
   SERVER_ID="$(hostname | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
@@ -28,32 +29,43 @@ fail() {
   exit 1
 }
 
-curl -fsS http://127.0.0.1:8787/health >/dev/null \
-  && ok "backend local health is reachable" \
-  || fail "backend local health is not reachable at 127.0.0.1:8787"
+wait_for() {
+  local description="$1"
+  shift
+  local i
+  for ((i=1; i<=RETRY_SECONDS; i++)); do
+    if "$@" >/dev/null 2>&1; then
+      ok "$description"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "$description"
+}
+
+firebase_entry_exists() {
+  local payload
+  payload="$(curl -fsS "${FIREBASE_DB_URL%/}/${FIREBASE_SERVERS_PATH}/${SERVER_ID}.json" || true)"
+  [[ -n "$payload" && "$payload" != "null" ]]
+}
+
+wait_for "backend local health is reachable" curl -fsS http://127.0.0.1:8787/health
 
 tmux has-session -t "${INSTALLER_CODEX_TMUX_SESSION:-codex}" 2>/dev/null \
   && ok "tmux session exists" \
   || fail "tmux session is missing"
 
 if [[ "${INSTALLER_CODEX_ENABLE_QUICK_TUNNEL:-true}" == "true" ]]; then
-  [[ -f "$QUICK_TUNNEL_STATE_FILE" ]] || fail "quick tunnel state file is missing"
+  wait_for "quick tunnel state file exists" test -f "$QUICK_TUNNEL_STATE_FILE"
   QUICK_URL="$(tr -d '\r\n' < "$QUICK_TUNNEL_STATE_FILE")"
   [[ -n "$QUICK_URL" ]] || fail "quick tunnel URL is empty"
-  curl -fsS "$QUICK_URL/health" >/dev/null \
-    && ok "quick tunnel health is reachable" \
-    || fail "quick tunnel URL is not healthy"
+  wait_for "quick tunnel health is reachable" curl -fsS "$QUICK_URL/health"
 fi
 
 if [[ -n "$FIREBASE_DB_URL" ]]; then
-  FIREBASE_JSON="$(curl -fsS "${FIREBASE_DB_URL%/}/${FIREBASE_SERVERS_PATH}/${SERVER_ID}.json" || true)"
-  [[ -n "$FIREBASE_JSON" && "$FIREBASE_JSON" != "null" ]] \
-    && ok "firebase registry entry exists" \
-    || fail "firebase registry entry is missing"
+  wait_for "firebase registry entry exists" firebase_entry_exists
 fi
 
-curl -fsS http://127.0.0.1:8787/api/app/overview -H "X-API-Token: $API_TOKEN" >/dev/null \
-  && ok "backend overview endpoint responds" \
-  || fail "backend overview endpoint failed"
+wait_for "backend overview endpoint responds" curl -fsS http://127.0.0.1:8787/api/app/overview -H "X-API-Token: $API_TOKEN"
 
 printf '[doctor] All checks passed.\n'
