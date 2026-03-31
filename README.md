@@ -99,6 +99,12 @@ systemctl restart codex-backend.service
 bash scripts/bootstrap.sh
 ```
 
+You can run a post-install verification at any time:
+
+```bash
+bash /usr/local/bin/installer-codex-doctor
+```
+
 ## API
 
 All API routes accept `X-API-Token` if you configured `INSTALLER_CODEX_API_TOKEN`.

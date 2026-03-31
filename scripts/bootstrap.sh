@@ -11,6 +11,7 @@ AUTH_FILE="${CODEX_HOME}/auth.json"
 NGINX_SITE_PATH="/etc/nginx/sites-available/installer-codex"
 NGINX_ENABLED_PATH="/etc/nginx/sites-enabled/installer-codex"
 QUICK_TUNNEL_SCRIPT_PATH="/usr/local/bin/installer-codex-quick-tunnel"
+DOCTOR_SCRIPT_PATH="/usr/local/bin/installer-codex-doctor"
 
 log() {
   printf '[installer-codex] %s\n' "$1"
@@ -189,6 +190,7 @@ install -m 0644 "$APP_ROOT/systemd/codex-backend.service" /etc/systemd/system/co
 install -m 0644 "$APP_ROOT/systemd/codex-session.service" /etc/systemd/system/codex-session.service
 install -m 0755 "$APP_ROOT/scripts/ensure_tmux_session.sh" /usr/local/bin/ensure-codex-tmux-session
 install -m 0755 "$APP_ROOT/scripts/run_backend.sh" /usr/local/bin/installer-codex-run-backend
+install -m 0755 "$APP_ROOT/scripts/doctor.sh" "$DOCTOR_SCRIPT_PATH"
 
 systemctl daemon-reload
 systemctl enable codex-backend.service
@@ -198,5 +200,6 @@ systemctl restart codex-backend.service
 setup_nginx
 setup_quick_tunnel
 setup_firebase_heartbeat
+"$DOCTOR_SCRIPT_PATH"
 
 log "Bootstrap complete."
