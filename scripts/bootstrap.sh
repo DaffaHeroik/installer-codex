@@ -188,6 +188,7 @@ restore_codex_auth
 install -m 0644 "$APP_ROOT/systemd/codex-backend.service" /etc/systemd/system/codex-backend.service
 install -m 0644 "$APP_ROOT/systemd/codex-session.service" /etc/systemd/system/codex-session.service
 install -m 0755 "$APP_ROOT/scripts/ensure_tmux_session.sh" /usr/local/bin/ensure-codex-tmux-session
+install -m 0755 "$APP_ROOT/scripts/run_backend.sh" /usr/local/bin/installer-codex-run-backend
 
 systemctl daemon-reload
 systemctl enable codex-backend.service

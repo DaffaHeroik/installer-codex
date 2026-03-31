@@ -4,12 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/installer-codex/backend
 EnvironmentFile=/opt/installer-codex/.env
-ExecStart=/opt/installer-codex/.venv/bin/uvicorn app:app --host ${INSTALLER_CODEX_HOST} --port ${INSTALLER_CODEX_PORT}
+ExecStart=/usr/local/bin/installer-codex-run-backend
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-
