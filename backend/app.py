@@ -77,3 +77,17 @@ def terminal_hint() -> dict:
         "project_dir": str(project_dir),
     }
 
+
+@app.get("/api/app/overview", dependencies=[Depends(verify_api_token)])
+def app_overview() -> dict:
+    status = manager.status()
+    return {
+        "ok": True,
+        "server_name": status["server_name"],
+        "availability": status["availability"],
+        "summary": status["summary"],
+        "codex_installed": status["codex_installed"],
+        "auth_present": status["auth_present"],
+        "tmux_session_exists": status["tmux_session_exists"],
+        "login_state": status["state"],
+    }

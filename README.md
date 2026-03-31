@@ -11,6 +11,7 @@
   - device-auth login start/status
   - logout
   - auth cache export/import for VPS migration
+- Android app project for status, login, logout, and browser handoff
 - persistent tmux session so Codex work survives phone disconnects
 
 ## Architecture
@@ -81,6 +82,10 @@ Simple healthcheck.
 
 Returns server status for your app. Use this to decide whether to show `Connected`, `Login required`, or `No server available`.
 
+### `GET /api/app/overview`
+
+Returns a simplified app-friendly payload with `availability`, `summary`, and the latest login state.
+
 ### `POST /api/session/start`
 
 Ensures the tmux session exists.
@@ -149,3 +154,22 @@ If you prefer private:
 ```bash
 gh repo create installer-codex --private --source=. --remote=origin --push
 ```
+
+## Android APK
+
+The repo now includes an Android project in [`android-app`](/D:/ubot/installer-codex/android-app). It is intentionally simple for personal use:
+
+- save `server_url` and `api_token`
+- refresh server status
+- start Codex login
+- open the login URL in the phone browser
+- show the device code
+- logout and switch account
+
+For HTTP access to a LAN or raw VPS IP, the app enables cleartext traffic to keep setup easy. For internet-facing use, HTTPS is still strongly recommended.
+
+### Build in GitHub Actions
+
+An Android workflow is included at [android.yml](/D:/ubot/installer-codex/.github/workflows/android.yml). Every push can build a debug APK artifact.
+
+After the workflow succeeds, download the artifact from GitHub Actions and install the `app-debug.apk` on your phone.

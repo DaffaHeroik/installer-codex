@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.InstallerCodex" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/blue_ink</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/slate</item>
+        <item name="android:statusBarColor">@color/blue_ink</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="colorSurface">@color/mist</item>
+        <item name="android:colorBackground">@color/mist</item>
+    </style>
+</resources>
+

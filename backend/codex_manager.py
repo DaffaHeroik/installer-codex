@@ -213,16 +213,33 @@ class CodexManager:
 
     def status(self) -> dict[str, Any]:
         state = self._read_state()
+        auth_present = self.auth_file.exists()
+        tmux_session_exists = self.tmux_session_exists()
+        codex_installed = self.command_exists()
+        if not codex_installed:
+            availability = "setup_required"
+            summary = "Codex CLI is not installed on this VPS yet."
+        elif not auth_present:
+            availability = "login_required"
+            summary = "Codex is installed, but login is still required."
+        elif not tmux_session_exists:
+            availability = "session_stopped"
+            summary = "Codex auth is ready, but the tmux session is not running."
+        else:
+            availability = "connected"
+            summary = "Codex is ready on this VPS."
+
         return {
             "ok": True,
             "server_name": self.server_name,
-            "codex_installed": self.command_exists(),
-            "auth_present": self.auth_file.exists(),
+            "availability": availability,
+            "summary": summary,
+            "codex_installed": codex_installed,
+            "auth_present": auth_present,
             "config_present": self.config_file.exists(),
             "tmux_session": self.tmux_session,
-            "tmux_session_exists": self.tmux_session_exists(),
+            "tmux_session_exists": tmux_session_exists,
             "project_dir": str(self.project_dir),
             "auth_file": str(self.auth_file),
             "state": state,
         }
-
