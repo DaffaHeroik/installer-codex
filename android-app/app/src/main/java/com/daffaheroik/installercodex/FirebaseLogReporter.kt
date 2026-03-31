@@ -58,7 +58,7 @@ object FirebaseLogReporter {
                     .put("model", Build.MODEL)
                     .put("android_version", Build.VERSION.RELEASE)
                     .put("sdk_int", Build.VERSION.SDK_INT)
-                    .put("app_version", BuildConfig.VERSION_NAME)
+                    .put("app_version", appVersion(context))
                     .put("timestamp", System.currentTimeMillis())
                     .put("timestamp_human", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
                     .put("install_id", installId(context))
@@ -85,5 +85,14 @@ object FirebaseLogReporter {
         val generated = UUID.randomUUID().toString()
         prefs.edit().putString("install_id", generated).apply()
         return generated
+    }
+
+    private fun appVersion(context: Context): String {
+        return try {
+            val pkg = context.packageManager.getPackageInfo(context.packageName, 0)
+            pkg.versionName ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
     }
 }
