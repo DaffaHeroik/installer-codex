@@ -15,6 +15,11 @@ class AuthImportRequest(BaseModel):
     auth_b64: str = Field(..., description="Base64-encoded ~/.codex/auth.json")
 
 
+class ChatSendRequest(BaseModel):
+    message: str = Field(..., min_length=1)
+    conversation_id: str | None = None
+
+
 def verify_api_token(x_api_token: str | None = Header(default=None)) -> None:
     required_token = os.getenv("INSTALLER_CODEX_API_TOKEN", "").strip()
     if not required_token:
@@ -84,10 +89,35 @@ def app_overview() -> dict:
     return {
         "ok": True,
         "server_name": status["server_name"],
+        "server_id": status["server_id"],
         "availability": status["availability"],
         "summary": status["summary"],
         "codex_installed": status["codex_installed"],
         "auth_present": status["auth_present"],
         "tmux_session_exists": status["tmux_session_exists"],
+        "show_start_login": status["show_start_login"],
         "login_state": status["state"],
     }
+
+
+@app.get("/api/chat/conversations", dependencies=[Depends(verify_api_token)])
+def list_conversations() -> dict:
+    return {"ok": True, "conversations": manager.list_conversations()}
+
+
+@app.get("/api/chat/history/{conversation_id}", dependencies=[Depends(verify_api_token)])
+def get_conversation(conversation_id: str) -> dict:
+    return {"ok": True, "conversation": manager.get_conversation(conversation_id)}
+
+
+@app.post("/api/chat/send", dependencies=[Depends(verify_api_token)])
+def send_chat(body: ChatSendRequest) -> dict:
+    result = manager.send_chat_message(body.message, body.conversation_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@app.delete("/api/chat/history/{conversation_id}", dependencies=[Depends(verify_api_token)])
+def delete_conversation(conversation_id: str) -> dict:
+    return manager.delete_conversation(conversation_id)

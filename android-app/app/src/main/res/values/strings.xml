@@ -5,9 +5,13 @@
     <string name="refresh_status">Refresh Status</string>
     <string name="use_selected">Use Selected</string>
     <string name="delete_selected">Delete Selected</string>
+    <string name="new_chat">New Chat</string>
+    <string name="delete_chat">Delete Chat</string>
     <string name="start_login">Start Codex Login</string>
     <string name="open_browser">Open Browser</string>
     <string name="copy_code">Copy Code</string>
+    <string name="send">Send</string>
+    <string name="message_hint">Ask Codex something...</string>
     <string name="logout_switch">Log Out / Switch Account</string>
     <string name="active_server_fmt">Active server: %1$s</string>
     <string name="active_server_default">Active server: Connecting...</string>

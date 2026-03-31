@@ -8,8 +8,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
@@ -18,6 +20,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,7 +30,7 @@ import java.util.concurrent.TimeUnit
 class MainActivity : AppCompatActivity() {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private val handler = Handler(Looper.getMainLooper())
@@ -39,15 +42,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deviceCodeText: TextView
     private lateinit var loginUrlText: TextView
     private lateinit var serverList: ListView
+    private lateinit var conversationList: ListView
+    private lateinit var messageList: ListView
+    private lateinit var messageInput: EditText
+    private lateinit var startLoginButton: Button
+    private lateinit var sendButton: Button
 
     private val serverItems = mutableListOf<ServerItem>()
+    private val conversationItems = mutableListOf<ConversationItem>()
+    private val messageItems = mutableListOf<ChatMessage>()
     private lateinit var serverAdapter: ArrayAdapter<String>
+    private lateinit var conversationAdapter: ArrayAdapter<String>
+    private lateinit var messageAdapter: ArrayAdapter<String>
 
     private var selectedServerId: String? = null
     private var activeServer: ServerItem? = null
+    private var activeConversationId: String? = null
     private var latestLoginUrl: String? = null
     private val refreshInFlight = AtomicBoolean(false)
     private val overviewInFlight = AtomicBoolean(false)
+    private val conversationsInFlight = AtomicBoolean(false)
+    private val sendInFlight = AtomicBoolean(false)
     private var isForeground = false
     private var userSelectingServer = false
 
@@ -71,9 +86,19 @@ class MainActivity : AppCompatActivity() {
         deviceCodeText = findViewById(R.id.deviceCodeText)
         loginUrlText = findViewById(R.id.loginUrlText)
         serverList = findViewById(R.id.serverList)
+        conversationList = findViewById(R.id.conversationList)
+        messageList = findViewById(R.id.messageList)
+        messageInput = findViewById(R.id.messageInput)
+        startLoginButton = findViewById(R.id.startLoginButton)
+        sendButton = findViewById(R.id.sendButton)
 
         serverAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
+        conversationAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
+        messageAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
         serverList.adapter = serverAdapter
+        conversationList.adapter = conversationAdapter
+        messageList.adapter = messageAdapter
+
         serverList.setOnItemClickListener { _, _, position, _ ->
             try {
                 val item = serverItems.getOrNull(position) ?: return@setOnItemClickListener
@@ -90,7 +115,11 @@ class MainActivity : AppCompatActivity() {
                 userSelectingServer = true
                 selectedServerId = item.serverId
                 activeServer = item
+                activeConversationId = null
+                messageItems.clear()
+                renderMessages()
                 refreshOverview(showToast = true)
+                loadConversations(showToast = false)
                 handler.postDelayed({ userSelectingServer = false }, 1500)
             } catch (e: Exception) {
                 FirebaseLogReporter.log(
@@ -104,6 +133,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        conversationList.setOnItemClickListener { _, _, position, _ ->
+            val item = conversationItems.getOrNull(position) ?: return@setOnItemClickListener
+            activeConversationId = item.conversationId
+            loadConversationHistory(item.conversationId)
+        }
+
         findViewById<Button>(R.id.refreshButton).setOnClickListener {
             refreshServers(showToast = true)
         }
@@ -114,12 +149,22 @@ class MainActivity : AppCompatActivity() {
             } else {
                 activeServer = chosen
                 refreshOverview(showToast = true)
+                loadConversations(showToast = false)
             }
         }
         findViewById<Button>(R.id.deleteSelectedButton).setOnClickListener {
             deleteSelectedServer()
         }
-        findViewById<Button>(R.id.startLoginButton).setOnClickListener {
+        findViewById<Button>(R.id.newChatButton).setOnClickListener {
+            activeConversationId = null
+            messageItems.clear()
+            renderMessages()
+            toast("New chat ready")
+        }
+        findViewById<Button>(R.id.deleteChatButton).setOnClickListener {
+            deleteActiveConversation()
+        }
+        startLoginButton.setOnClickListener {
             startLogin()
         }
         findViewById<Button>(R.id.openBrowserButton).setOnClickListener {
@@ -130,6 +175,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.logoutButton).setOnClickListener {
             logout()
+        }
+        sendButton.setOnClickListener {
+            sendChat()
         }
 
         handler.post {
@@ -150,51 +198,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshServers(showToast: Boolean) {
-        if (!refreshInFlight.compareAndSet(false, true)) {
-            return
-        }
+        if (!refreshInFlight.compareAndSet(false, true)) return
 
-        val request = Request.Builder()
-            .url(FIREBASE_SERVERS_URL)
-            .get()
-            .build()
-
+        val request = Request.Builder().url(FIREBASE_SERVERS_URL).get().build()
         executeJson(
             request,
             onSuccess = { body ->
                 val freshServers = parseServers(body)
                 serverItems.clear()
                 serverItems.addAll(freshServers)
-                renderServerList()
-
                 if (activeServer == null || serverItems.none { it.serverId == activeServer?.serverId }) {
                     activeServer = chooseAutoServer()
                 } else {
                     activeServer = serverItems.firstOrNull { it.serverId == activeServer?.serverId } ?: chooseAutoServer()
                 }
-
                 selectedServerId = activeServer?.serverId ?: selectedServerId
+                renderServerList()
                 refreshOverview(showToast = showToast)
+                loadConversations(showToast = false)
                 refreshInFlight.set(false)
             },
             onFailure = {
-                runOnUiThread {
-                    FirebaseLogReporter.log(
-                        context = this,
-                        level = "warn",
-                        event = "server_refresh_failed",
-                        message = "Failed to load server list",
-                    )
-                    activeServer = null
-                    availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
-                    summaryText.text = getString(R.string.summary_fmt, "No server available")
-                    activeServerText.text = getString(R.string.active_server_fmt, "-")
-                    loginStateText.text = getString(R.string.login_state_fmt, "-")
-                    deviceCodeText.text = getString(R.string.device_code_fmt, "-")
-                    loginUrlText.text = getString(R.string.login_url_fmt, "-")
-                    serverAdapter.clear()
-                    latestLoginUrl = null
-                }
+                FirebaseLogReporter.log(
+                    context = this,
+                    level = "warn",
+                    event = "server_refresh_failed",
+                    message = "Failed to load server list",
+                )
+                activeServer = null
+                availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
+                summaryText.text = getString(R.string.summary_fmt, "No server available")
+                activeServerText.text = getString(R.string.active_server_fmt, "-")
+                loginStateText.text = getString(R.string.login_state_fmt, "-")
+                deviceCodeText.text = getString(R.string.device_code_fmt, "-")
+                loginUrlText.text = getString(R.string.login_url_fmt, "-")
+                serverAdapter.clear()
                 refreshInFlight.set(false)
             },
             toastErrors = showToast,
@@ -211,7 +249,6 @@ class MainActivity : AppCompatActivity() {
             val serverUrl = obj.optString("server_url", "").trim().trimEnd('/')
             val apiToken = obj.optString("api_token", "change-me")
             if (serverUrl.isBlank()) continue
-
             val updatedAt = obj.optLong("updated_at", 0L)
             val isFresh = now - updatedAt <= SERVER_STALE_SECONDS
             val status = obj.optString("status", "offline")
@@ -229,42 +266,30 @@ class MainActivity : AppCompatActivity() {
         return items.sortedWith(compareByDescending<ServerItem> { it.isUsable() }.thenByDescending { it.updatedAt })
     }
 
-    private fun chooseAutoServer(): ServerItem? {
-        return serverItems.firstOrNull { it.isUsable() } ?: serverItems.firstOrNull()
-    }
+    private fun chooseAutoServer(): ServerItem? = serverItems.firstOrNull { it.isUsable() } ?: serverItems.firstOrNull()
 
     private fun renderServerList() {
         val labels = serverItems.map { item ->
             val selected = if (item.serverId == selectedServerId) " [selected]" else ""
             "${item.serverName} | ${item.status} | ${item.serverUrl}$selected"
         }
-        runOnUiThread {
-            serverAdapter.clear()
-            serverAdapter.addAll(labels)
-            serverAdapter.notifyDataSetChanged()
-        }
+        serverAdapter.clear()
+        serverAdapter.addAll(labels)
+        serverAdapter.notifyDataSetChanged()
     }
 
     private fun refreshOverview(showToast: Boolean) {
-        if (!overviewInFlight.compareAndSet(false, true)) {
-            return
-        }
-
+        if (!overviewInFlight.compareAndSet(false, true)) return
         val server = activeServer
         if (server == null) {
             overviewInFlight.set(false)
-            runOnUiThread {
-                availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
-                summaryText.text = getString(R.string.summary_fmt, "No server available")
-                activeServerText.text = getString(R.string.active_server_fmt, "-")
-            }
+            availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
+            summaryText.text = getString(R.string.summary_fmt, "No server available")
+            activeServerText.text = getString(R.string.active_server_fmt, "-")
             return
         }
 
-        val request = baseRequest(server, "/api/app/overview")
-            .get()
-            .build()
-
+        val request = baseRequest(server, "/api/app/overview").get().build()
         executeJson(
             request,
             onSuccess = { body ->
@@ -273,24 +298,22 @@ class MainActivity : AppCompatActivity() {
                 overviewInFlight.set(false)
             },
             onFailure = {
-                runOnUiThread {
-                    FirebaseLogReporter.log(
-                        context = this,
-                        level = "warn",
-                        event = "overview_failed",
-                        message = "Selected server is unavailable",
-                        extra = JSONObject()
-                            .put("server_id", server.serverId)
-                            .put("server_url", server.serverUrl),
-                    )
-                    availabilityText.text = getString(R.string.availability_fmt, "offline")
-                    summaryText.text = getString(R.string.summary_fmt, "Selected server is unavailable")
-                    activeServerText.text = getString(R.string.active_server_fmt, server.serverName)
-                    loginStateText.text = getString(R.string.login_state_fmt, "-")
-                    deviceCodeText.text = getString(R.string.device_code_fmt, "-")
-                    loginUrlText.text = getString(R.string.login_url_fmt, "-")
-                    latestLoginUrl = null
-                }
+                FirebaseLogReporter.log(
+                    context = this,
+                    level = "warn",
+                    event = "overview_failed",
+                    message = "Selected server is unavailable",
+                    extra = JSONObject()
+                        .put("server_id", server.serverId)
+                        .put("server_url", server.serverUrl),
+                )
+                availabilityText.text = getString(R.string.availability_fmt, "offline")
+                summaryText.text = getString(R.string.summary_fmt, "Selected server is unavailable")
+                activeServerText.text = getString(R.string.active_server_fmt, server.serverName)
+                loginStateText.text = getString(R.string.login_state_fmt, "-")
+                deviceCodeText.text = getString(R.string.device_code_fmt, "-")
+                loginUrlText.text = getString(R.string.login_url_fmt, "-")
+                latestLoginUrl = null
                 overviewInFlight.set(false)
             },
             toastErrors = showToast,
@@ -304,55 +327,169 @@ class MainActivity : AppCompatActivity() {
         val availability = body.optString("availability", "-")
         val deviceCode = loginState.optString("device_code", "-").ifBlank { "-" }
         val loginUrl = loginState.optString("login_url", "-").ifBlank { "-" }
+        val showStartLogin = body.optBoolean("show_start_login", true)
 
         latestLoginUrl = loginState.optString("login_url", null)
+        activeServerText.text = getString(R.string.active_server_fmt, "${server.serverName} (${server.serverUrl})")
+        availabilityText.text = getString(R.string.availability_fmt, availability)
+        summaryText.text = getString(R.string.summary_fmt, message)
+        loginStateText.text = getString(R.string.login_state_fmt, phase)
+        deviceCodeText.text = getString(R.string.device_code_fmt, deviceCode)
+        loginUrlText.text = getString(R.string.login_url_fmt, loginUrl)
+        startLoginButton.visibility = if (showStartLogin) View.VISIBLE else View.GONE
+    }
 
-        runOnUiThread {
-            activeServerText.text = getString(R.string.active_server_fmt, "${server.serverName} (${server.serverUrl})")
-            availabilityText.text = getString(R.string.availability_fmt, availability)
-            summaryText.text = getString(R.string.summary_fmt, message)
-            loginStateText.text = getString(R.string.login_state_fmt, phase)
-            deviceCodeText.text = getString(R.string.device_code_fmt, deviceCode)
-            loginUrlText.text = getString(R.string.login_url_fmt, loginUrl)
+    private fun loadConversations(showToast: Boolean) {
+        val server = activeServer ?: return
+        if (!conversationsInFlight.compareAndSet(false, true)) return
+        val request = baseRequest(server, "/api/chat/conversations").get().build()
+        executeJson(
+            request,
+            onSuccess = { body ->
+                conversationItems.clear()
+                val arr = body.optJSONArray("conversations") ?: JSONArray()
+                for (index in 0 until arr.length()) {
+                    val item = arr.optJSONObject(index) ?: continue
+                    conversationItems += ConversationItem(
+                        conversationId = item.optString("conversation_id"),
+                        title = item.optString("title", "New chat"),
+                        updatedAt = item.optLong("updated_at", 0),
+                    )
+                }
+                renderConversations()
+                if (activeConversationId == null && conversationItems.isNotEmpty()) {
+                    activeConversationId = conversationItems.first().conversationId
+                    loadConversationHistory(activeConversationId!!)
+                }
+                if (showToast) toast("Chat history updated")
+                conversationsInFlight.set(false)
+            },
+            onFailure = {
+                conversationsInFlight.set(false)
+            },
+            toastErrors = showToast,
+        )
+    }
+
+    private fun renderConversations() {
+        val labels = conversationItems.map { item ->
+            val selected = if (item.conversationId == activeConversationId) " [active]" else ""
+            "${item.title}$selected"
         }
+        conversationAdapter.clear()
+        conversationAdapter.addAll(labels)
+        conversationAdapter.notifyDataSetChanged()
+    }
+
+    private fun loadConversationHistory(conversationId: String) {
+        val server = activeServer ?: return
+        val request = baseRequest(server, "/api/chat/history/$conversationId").get().build()
+        executeJson(
+            request,
+            onSuccess = { body ->
+                val conversation = body.optJSONObject("conversation") ?: JSONObject()
+                val messages = conversation.optJSONArray("messages") ?: JSONArray()
+                messageItems.clear()
+                for (index in 0 until messages.length()) {
+                    val item = messages.optJSONObject(index) ?: continue
+                    messageItems += ChatMessage(
+                        role = item.optString("role", "assistant"),
+                        content = item.optString("content", ""),
+                    )
+                }
+                renderMessages()
+            },
+            toastErrors = false,
+        )
+    }
+
+    private fun renderMessages() {
+        val labels = messageItems.map { item -> "${item.role.uppercase()}: ${item.content}" }
+        messageAdapter.clear()
+        messageAdapter.addAll(labels)
+        messageAdapter.notifyDataSetChanged()
+        if (labels.isNotEmpty()) {
+            messageList.post { messageList.setSelection(labels.size - 1) }
+        }
+    }
+
+    private fun sendChat() {
+        val server = activeServer ?: return toast("No active server")
+        val text = messageInput.text.toString().trim()
+        if (text.isBlank()) return toast("Type a message first")
+        if (!sendInFlight.compareAndSet(false, true)) return
+
+        sendButton.isEnabled = false
+        messageItems += ChatMessage("user", text)
+        renderMessages()
+        messageInput.setText("")
+
+        val payload = JSONObject()
+            .put("message", text)
+            .put("conversation_id", activeConversationId)
+
+        val request = baseRequest(server, "/api/chat/send")
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+
+        executeJson(
+            request,
+            onSuccess = { body ->
+                activeConversationId = body.optString("conversation_id", activeConversationId)
+                val reply = body.optString("reply", "")
+                if (reply.isNotBlank()) {
+                    messageItems += ChatMessage("assistant", reply)
+                }
+                renderMessages()
+                sendButton.isEnabled = true
+                sendInFlight.set(false)
+                loadConversations(showToast = false)
+            },
+            onFailure = {
+                sendButton.isEnabled = true
+                sendInFlight.set(false)
+            },
+            toastErrors = true,
+        )
+    }
+
+    private fun deleteActiveConversation() {
+        val server = activeServer ?: return toast("No active server")
+        val conversationId = activeConversationId ?: return toast("No active chat")
+        val request = baseRequest(server, "/api/chat/history/$conversationId").delete().build()
+        executeJson(
+            request,
+            onSuccess = {
+                activeConversationId = null
+                messageItems.clear()
+                renderMessages()
+                loadConversations(showToast = false)
+                toast("Chat deleted")
+            },
+            toastErrors = true,
+        )
     }
 
     private fun startLogin() {
         val server = activeServer ?: return toast("No active server")
-        val request = baseRequest(server, "/api/login/start")
-            .post("{}".toRequestBody(JSON_MEDIA))
-            .build()
-
-        executeJson(request, onSuccess = {
-            refreshOverview(showToast = true)
-        }, toastErrors = true)
+        val request = baseRequest(server, "/api/login/start").post("{}".toRequestBody(JSON_MEDIA)).build()
+        executeJson(request, onSuccess = { refreshOverview(showToast = true) }, toastErrors = true)
     }
 
     private fun logout() {
         val server = activeServer ?: return toast("No active server")
-        val request = baseRequest(server, "/api/logout")
-            .post("{}".toRequestBody(JSON_MEDIA))
-            .build()
-
-        executeJson(request, onSuccess = {
-            refreshOverview(showToast = true)
-        }, toastErrors = true)
+        val request = baseRequest(server, "/api/logout").post("{}".toRequestBody(JSON_MEDIA)).build()
+        executeJson(request, onSuccess = { refreshOverview(showToast = true) }, toastErrors = true)
     }
 
     private fun deleteSelectedServer() {
         val serverId = selectedServerId ?: return toast("Select a server first")
         val url = "$FIREBASE_DB_ROOT/$FIREBASE_SERVERS_PATH/$serverId.json"
-        val request = Request.Builder()
-            .url(url)
-            .delete()
-            .build()
-
+        val request = Request.Builder().url(url).delete().build()
         executeJson(
             request,
             onSuccess = {
-                if (activeServer?.serverId == serverId) {
-                    activeServer = null
-                }
+                if (activeServer?.serverId == serverId) activeServer = null
                 selectedServerId = null
                 toast("Server deleted from registry")
                 refreshServers(showToast = false)
@@ -363,29 +500,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun openLoginUrl() {
         val url = latestLoginUrl
-        if (url.isNullOrBlank()) {
-            toast("No login URL yet")
-            return
-        }
+        if (url.isNullOrBlank()) return toast("No login URL yet")
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 
     private fun copyDeviceCode() {
         val rawText = deviceCodeText.text.toString()
         val code = rawText.substringAfter(": ").trim()
-        if (code == "-" || code.isBlank()) {
-            toast("No device code yet")
-            return
-        }
+        if (code == "-" || code.isBlank()) return toast("No device code yet")
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("Codex device code", code))
         toast("Device code copied")
     }
 
     private fun baseRequest(server: ServerItem, path: String): Request.Builder {
-        return Request.Builder()
-            .url("${server.serverUrl}$path")
-            .header("X-API-Token", server.apiToken)
+        return Request.Builder().url("${server.serverUrl}$path").header("X-API-Token", server.apiToken)
     }
 
     private fun executeJson(
@@ -398,9 +527,7 @@ class MainActivity : AppCompatActivity() {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 runOnUiThread {
                     onFailure?.invoke()
-                    if (toastErrors) {
-                        toast("Request failed: ${e.message}")
-                    }
+                    if (toastErrors) toast("Request failed: ${e.message}")
                 }
             }
 
@@ -409,9 +536,7 @@ class MainActivity : AppCompatActivity() {
                     if (!response.isSuccessful) {
                         runOnUiThread {
                             onFailure?.invoke()
-                            if (toastErrors) {
-                                toast("HTTP ${response.code}")
-                            }
+                            if (toastErrors) toast("HTTP ${response.code}")
                             FirebaseLogReporter.log(
                                 context = this@MainActivity,
                                 level = "warn",
@@ -428,23 +553,17 @@ class MainActivity : AppCompatActivity() {
                     }
                     try {
                         val parsed = JSONObject(rawBody)
-                        runOnUiThread {
-                            onSuccess(parsed)
-                        }
+                        runOnUiThread { onSuccess(parsed) }
                     } catch (_: Exception) {
                         runOnUiThread {
                             onFailure?.invoke()
-                            if (toastErrors) {
-                                toast("Invalid server response")
-                            }
+                            if (toastErrors) toast("Invalid server response")
                             FirebaseLogReporter.log(
                                 context = this@MainActivity,
                                 level = "error",
                                 event = "invalid_json",
                                 message = "Invalid server response",
-                                extra = JSONObject()
-                                    .put("url", request.url.toString())
-                                    .put("raw_body", rawBody.take(2000)),
+                                extra = JSONObject().put("url", request.url.toString()).put("raw_body", rawBody.take(2000)),
                             )
                         }
                     }
@@ -470,6 +589,9 @@ class MainActivity : AppCompatActivity() {
     ) {
         fun isUsable(): Boolean = status == "online"
     }
+
+    data class ConversationItem(val conversationId: String, val title: String, val updatedAt: Long)
+    data class ChatMessage(val role: String, val content: String)
 
     companion object {
         private const val FIREBASE_DB_ROOT = "https://kebun-pintar-dce3e-default-rtdb.firebaseio.com"

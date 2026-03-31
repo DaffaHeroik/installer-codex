@@ -5,8 +5,12 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,10 @@ class CodexManager:
         self.tmux_session = os.getenv("INSTALLER_CODEX_TMUX_SESSION", "codex")
         self.codex_bin = os.getenv("INSTALLER_CODEX_CLI_BIN", shutil.which("codex") or "/usr/bin/codex")
         self.server_name = os.getenv("INSTALLER_CODEX_SERVER_NAME", "codex-vps")
+        self.server_id = os.getenv("INSTALLER_CODEX_SERVER_ID", self.server_name.lower().replace(" ", "-"))
+        self.firebase_db_url = os.getenv("INSTALLER_CODEX_FIREBASE_DB_URL", "").rstrip("/")
+        self.firebase_auth = os.getenv("INSTALLER_CODEX_FIREBASE_AUTH", "")
+        self.firebase_chat_path = os.getenv("INSTALLER_CODEX_FIREBASE_CHAT_PATH", "codex_chat_history")
         self.login_process: subprocess.Popen[str] | None = None
         self.state_lock = threading.Lock()
         self.state_file = self.base_dir / "login_state.json"
@@ -67,6 +75,171 @@ class CodexManager:
             capture_output=True,
             cwd=str(self.project_dir),
         )
+
+    def _firebase_url(self, path: str) -> str | None:
+        if not self.firebase_db_url:
+            return None
+        url = f"{self.firebase_db_url}/{path.lstrip('/')}.json"
+        if self.firebase_auth:
+            url = f"{url}?auth={self.firebase_auth}"
+        return url
+
+    def _firebase_get(self, path: str) -> dict[str, Any] | list[Any] | None:
+        url = self._firebase_url(path)
+        if not url:
+            return None
+        try:
+            with urllib.request.urlopen(url, timeout=20) as response:
+                raw = response.read().decode("utf-8").strip() or "null"
+                if raw == "null":
+                    return None
+                return json.loads(raw)
+        except (urllib.error.URLError, json.JSONDecodeError):
+            return None
+
+    def _firebase_put(self, path: str, payload: dict[str, Any] | list[Any]) -> None:
+        url = self._firebase_url(path)
+        if not url:
+            return
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urllib.request.urlopen(request, timeout=20):
+            pass
+
+    def _firebase_delete(self, path: str) -> None:
+        url = self._firebase_url(path)
+        if not url:
+            return
+        request = urllib.request.Request(url, method="DELETE")
+        with urllib.request.urlopen(request, timeout=20):
+            pass
+
+    def _chat_path(self, conversation_id: str | None = None) -> str:
+        base = f"{self.firebase_chat_path}/{self.server_id}"
+        if conversation_id:
+            return f"{base}/{conversation_id}"
+        return base
+
+    def list_conversations(self) -> list[dict[str, Any]]:
+        payload = self._firebase_get(self._chat_path())
+        if not isinstance(payload, dict):
+            return []
+
+        conversations = []
+        for conversation_id, item in payload.items():
+            if not isinstance(item, dict):
+                continue
+            conversations.append(
+                {
+                    "conversation_id": conversation_id,
+                    "title": item.get("title", "New chat"),
+                    "created_at": item.get("created_at", 0),
+                    "updated_at": item.get("updated_at", 0),
+                    "message_count": len(item.get("messages", [])),
+                }
+            )
+        conversations.sort(key=lambda item: item["updated_at"], reverse=True)
+        return conversations
+
+    def get_conversation(self, conversation_id: str) -> dict[str, Any]:
+        payload = self._firebase_get(self._chat_path(conversation_id))
+        if not isinstance(payload, dict):
+            return {
+                "conversation_id": conversation_id,
+                "title": "New chat",
+                "created_at": 0,
+                "updated_at": 0,
+                "messages": [],
+            }
+        payload["conversation_id"] = conversation_id
+        payload.setdefault("messages", [])
+        return payload
+
+    def delete_conversation(self, conversation_id: str) -> dict[str, Any]:
+        self._firebase_delete(self._chat_path(conversation_id))
+        return {"ok": True, "conversation_id": conversation_id}
+
+    def _build_chat_prompt(self, messages: list[dict[str, Any]], user_message: str) -> str:
+        recent_messages = messages[-12:]
+        lines = [
+            "You are Codex responding inside a mobile chat app.",
+            "Use the existing repository/workspace on disk if relevant.",
+            "Answer helpfully and concisely.",
+            "",
+            "Conversation so far:",
+        ]
+        for message in recent_messages:
+            role = message.get("role", "user").upper()
+            content = message.get("content", "")
+            lines.append(f"{role}: {content}")
+        lines.append(f"USER: {user_message}")
+        return "\n".join(lines)
+
+    def send_chat_message(self, message: str, conversation_id: str | None = None) -> dict[str, Any]:
+        if not self.command_exists():
+            return {"ok": False, "message": "Codex CLI is not installed."}
+        if not self.auth_file.exists():
+            return {"ok": False, "message": "Codex auth is missing. Please login first."}
+
+        now = int(time.time())
+        conversation_id = conversation_id or uuid.uuid4().hex
+        conversation = self.get_conversation(conversation_id)
+        messages = conversation.get("messages", [])
+        prompt = self._build_chat_prompt(messages, message)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as output_file:
+            output_path = output_file.name
+
+        try:
+            subprocess.run(
+                [
+                    self.codex_bin,
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--output-last-message",
+                    output_path,
+                    prompt,
+                ],
+                cwd=str(self.project_dir),
+                text=True,
+                capture_output=True,
+                check=True,
+                timeout=900,
+            )
+            assistant_message = Path(output_path).read_text(encoding="utf-8").strip()
+        except subprocess.CalledProcessError as exc:
+            assistant_message = (exc.stderr or exc.stdout or "Codex execution failed.").strip()
+            return {"ok": False, "message": assistant_message}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "message": "Codex chat request timed out."}
+        finally:
+            Path(output_path).unlink(missing_ok=True)
+
+        title = conversation.get("title") or message[:48] or "New chat"
+        updated_messages = [
+            *messages,
+            {"role": "user", "content": message, "created_at": now},
+            {"role": "assistant", "content": assistant_message, "created_at": int(time.time())},
+        ]
+        payload = {
+            "title": title,
+            "created_at": conversation.get("created_at") or now,
+            "updated_at": int(time.time()),
+            "messages": updated_messages,
+        }
+        self._firebase_put(self._chat_path(conversation_id), payload)
+        return {
+            "ok": True,
+            "conversation_id": conversation_id,
+            "title": title,
+            "reply": assistant_message,
+            "messages": updated_messages,
+        }
 
     def command_exists(self) -> bool:
         return Path(self.codex_bin).exists() or shutil.which(self.codex_bin) is not None
@@ -232,6 +405,7 @@ class CodexManager:
         return {
             "ok": True,
             "server_name": self.server_name,
+            "server_id": self.server_id,
             "availability": availability,
             "summary": summary,
             "codex_installed": codex_installed,
@@ -239,6 +413,7 @@ class CodexManager:
             "config_present": self.config_file.exists(),
             "tmux_session": self.tmux_session,
             "tmux_session_exists": tmux_session_exists,
+            "show_start_login": not auth_present,
             "project_dir": str(self.project_dir),
             "auth_file": str(self.auth_file),
             "state": state,

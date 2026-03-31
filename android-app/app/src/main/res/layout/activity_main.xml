@@ -65,7 +65,7 @@
         <ListView
             android:id="@+id/serverList"
             android:layout_width="0dp"
-            android:layout_height="220dp"
+            android:layout_height="140dp"
             android:layout_marginTop="20dp"
             android:dividerHeight="8dp"
             app:layout_constraintEnd_toEndOf="parent"
@@ -104,6 +104,38 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/useSelectedButton" />
 
+        <ListView
+            android:id="@+id/conversationList"
+            android:layout_width="0dp"
+            android:layout_height="140dp"
+            android:layout_marginTop="16dp"
+            android:dividerHeight="8dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/loginStateText" />
+
+        <Button
+            android:id="@+id/newChatButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/new_chat"
+            app:layout_constraintEnd_toStartOf="@id/deleteChatButton"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/conversationList"
+            app:layout_constraintWidth_percent="0.48" />
+
+        <Button
+            android:id="@+id/deleteChatButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/delete_chat"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/newChatButton"
+            app:layout_constraintTop_toBottomOf="@id/conversationList"
+            app:layout_constraintWidth_percent="0.48" />
+
         <TextView
             android:id="@+id/deviceCodeText"
             android:layout_width="0dp"
@@ -113,7 +145,7 @@
             android:textStyle="bold"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/loginStateText" />
+            app:layout_constraintTop_toBottomOf="@id/newChatButton" />
 
         <TextView
             android:id="@+id/loginUrlText"
@@ -136,6 +168,39 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/loginUrlText" />
 
+        <ListView
+            android:id="@+id/messageList"
+            android:layout_width="0dp"
+            android:layout_height="220dp"
+            android:layout_marginTop="16dp"
+            android:dividerHeight="6dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/startLoginButton" />
+
+        <EditText
+            android:id="@+id/messageInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="@string/message_hint"
+            android:minHeight="56dp"
+            app:layout_constraintEnd_toStartOf="@id/sendButton"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/messageList"
+            app:layout_constraintWidth_percent="0.73" />
+
+        <Button
+            android:id="@+id/sendButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/send"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/messageInput"
+            app:layout_constraintTop_toBottomOf="@id/messageList"
+            app:layout_constraintWidth_percent="0.22" />
+
         <Button
             android:id="@+id/openBrowserButton"
             android:layout_width="0dp"
@@ -143,7 +208,7 @@
             android:text="@string/open_browser"
             app:layout_constraintEnd_toStartOf="@id/copyCodeButton"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/startLoginButton"
+            app:layout_constraintTop_toBottomOf="@id/messageInput"
             app:layout_constraintWidth_percent="0.48" />
 
         <Button
@@ -153,7 +218,7 @@
             android:text="@string/copy_code"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toEndOf="@id/openBrowserButton"
-            app:layout_constraintTop_toBottomOf="@id/startLoginButton"
+            app:layout_constraintTop_toBottomOf="@id/messageInput"
             app:layout_constraintWidth_percent="0.48" />
 
         <Button

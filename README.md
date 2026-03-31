@@ -85,6 +85,7 @@ INSTALLER_CODEX_NGINX_SERVER_NAME=_
 INSTALLER_CODEX_FIREBASE_DB_URL=https://kebun-pintar-dce3e-default-rtdb.firebaseio.com
 INSTALLER_CODEX_FIREBASE_AUTH=
 INSTALLER_CODEX_FIREBASE_SERVERS_PATH=codex_servers
+INSTALLER_CODEX_FIREBASE_CHAT_PATH=codex_chat_history
 INSTALLER_CODEX_FIREBASE_HEARTBEAT_SECONDS=30
 INSTALLER_CODEX_SERVER_ID=
 INSTALLER_CODEX_ENABLE_QUICK_TUNNEL=true
@@ -151,6 +152,24 @@ Imports a previously exported auth payload. Request body:
 }
 ```
 
+### `GET /api/chat/conversations`
+
+Returns the saved chat list for this VPS from Firebase.
+
+### `GET /api/chat/history/{conversation_id}`
+
+Returns one saved conversation and all of its messages.
+
+### `POST /api/chat/send`
+
+Sends one message to Codex. If `conversation_id` is omitted, a new chat is created automatically.
+If `~/.codex/auth.json` already exists on the VPS, the backend will reuse that login and no extra
+login is needed.
+
+### `DELETE /api/chat/history/{conversation_id}`
+
+Deletes one saved conversation from Firebase.
+
 ## Suggested mobile app flow
 
 1. VPS heartbeat writes itself to Firebase
@@ -159,7 +178,7 @@ Imports a previously exported auth payload. Request body:
 4. If no recent server exists, show `No server available`
 5. If there are multiple servers, the user can select one manually
 6. If a server is stale or dead, the user can delete it from the Firebase list
-7. APK then calls your selected server's API for login, logout, and status actions
+7. APK then calls your selected server's API for login, logout, chat, and history actions
 
 If two servers are online at the same time, the app will auto-connect to the newest heartbeat first, but manual selection is always available in the server list.
 
@@ -255,10 +274,14 @@ gh repo create installer-codex --private --source=. --remote=origin --push
 
 ## Android APK
 
-The repo now includes an Android project in [`android-app`](/D:/ubot/installer-codex/android-app). It is intentionally simple for personal use:
+The repo now includes an Android project in [`android-app`](/D:/ubot/installer-codex/android-app). It now supports:
 
-- save `server_url` and `api_token`
-- refresh server status
+- auto server discovery from Firebase
+- server selection and deletion
+- adaptive login button visibility
+- Codex chat UI
+- chat history per VPS
+- crash/non-fatal logging to Firebase
 - start Codex login
 - open the login URL in the phone browser
 - show the device code
