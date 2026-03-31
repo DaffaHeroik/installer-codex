@@ -75,12 +75,33 @@ class MainActivity : AppCompatActivity() {
         serverAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
         serverList.adapter = serverAdapter
         serverList.setOnItemClickListener { _, _, position, _ ->
-            val item = serverItems.getOrNull(position) ?: return@setOnItemClickListener
-            userSelectingServer = true
-            selectedServerId = item.serverId
-            activeServer = item
-            refreshOverview(showToast = true)
-            handler.postDelayed({ userSelectingServer = false }, 1500)
+            try {
+                val item = serverItems.getOrNull(position) ?: return@setOnItemClickListener
+                FirebaseLogReporter.log(
+                    context = this,
+                    level = "info",
+                    event = "server_click",
+                    message = "User selected a server",
+                    extra = JSONObject()
+                        .put("position", position)
+                        .put("server_id", item.serverId)
+                        .put("server_name", item.serverName),
+                )
+                userSelectingServer = true
+                selectedServerId = item.serverId
+                activeServer = item
+                refreshOverview(showToast = true)
+                handler.postDelayed({ userSelectingServer = false }, 1500)
+            } catch (e: Exception) {
+                FirebaseLogReporter.log(
+                    context = this,
+                    level = "error",
+                    event = "server_click_failed",
+                    message = e.message ?: "Unknown click failure",
+                    extra = JSONObject().put("stacktrace", e.stackTraceToString()),
+                )
+                toast("Failed while opening server")
+            }
         }
 
         findViewById<Button>(R.id.refreshButton).setOnClickListener {
@@ -158,6 +179,12 @@ class MainActivity : AppCompatActivity() {
             },
             onFailure = {
                 runOnUiThread {
+                    FirebaseLogReporter.log(
+                        context = this,
+                        level = "warn",
+                        event = "server_refresh_failed",
+                        message = "Failed to load server list",
+                    )
                     activeServer = null
                     availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
                     summaryText.text = getString(R.string.summary_fmt, "No server available")
@@ -247,6 +274,15 @@ class MainActivity : AppCompatActivity() {
             },
             onFailure = {
                 runOnUiThread {
+                    FirebaseLogReporter.log(
+                        context = this,
+                        level = "warn",
+                        event = "overview_failed",
+                        message = "Selected server is unavailable",
+                        extra = JSONObject()
+                            .put("server_id", server.serverId)
+                            .put("server_url", server.serverUrl),
+                    )
                     availabilityText.text = getString(R.string.availability_fmt, "offline")
                     summaryText.text = getString(R.string.summary_fmt, "Selected server is unavailable")
                     activeServerText.text = getString(R.string.active_server_fmt, server.serverName)
@@ -376,6 +412,13 @@ class MainActivity : AppCompatActivity() {
                             if (toastErrors) {
                                 toast("HTTP ${response.code}")
                             }
+                            FirebaseLogReporter.log(
+                                context = this@MainActivity,
+                                level = "warn",
+                                event = "http_error",
+                                message = "HTTP ${response.code}",
+                                extra = JSONObject().put("url", request.url.toString()),
+                            )
                         }
                         return
                     }
@@ -394,6 +437,15 @@ class MainActivity : AppCompatActivity() {
                             if (toastErrors) {
                                 toast("Invalid server response")
                             }
+                            FirebaseLogReporter.log(
+                                context = this@MainActivity,
+                                level = "error",
+                                event = "invalid_json",
+                                message = "Invalid server response",
+                                extra = JSONObject()
+                                    .put("url", request.url.toString())
+                                    .put("raw_body", rawBody.take(2000)),
+                            )
                         }
                     }
                 }
