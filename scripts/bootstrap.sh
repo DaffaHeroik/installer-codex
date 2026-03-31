@@ -7,13 +7,42 @@ ENV_FILE="$APP_ROOT/.env"
 STATE_DIR="$APP_ROOT/state"
 WORKSPACE_DIR="$APP_ROOT/workspace"
 
+ensure_package() {
+  local package_name="$1"
+  if dpkg -s "$package_name" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y "$package_name"
+}
+
+ensure_python_venv() {
+  if python3 -m venv "$VENV_PATH" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local py_version
+  py_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+
+  ensure_package "python3-venv" || true
+  ensure_package "python${py_version}-venv"
+
+  rm -rf "$VENV_PATH"
+  python3 -m venv "$VENV_PATH"
+}
+
 mkdir -p "$STATE_DIR" "$WORKSPACE_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$APP_ROOT/.env.example" "$ENV_FILE"
 fi
 
-python3 -m venv "$VENV_PATH"
+ensure_package tmux
+ensure_package python3
+ensure_package python3-pip
+ensure_python_venv
 "$VENV_PATH/bin/pip" install --upgrade pip
 "$VENV_PATH/bin/pip" install -r "$APP_ROOT/requirements.txt"
 
@@ -30,4 +59,3 @@ systemctl restart codex-session.service
 systemctl restart codex-backend.service
 
 echo "Bootstrap complete."
-
