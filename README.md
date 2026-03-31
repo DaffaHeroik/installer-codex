@@ -18,6 +18,8 @@
 
 - Codex CLI runs on the VPS
 - Login happens with `codex login --device-auth`
+- If the machine already has `~/.codex/auth.json`, the installer preserves it
+- If you provide a backup auth payload, the installer restores it automatically
 - Your mobile app calls the backend API to:
   - start login
   - poll login state
@@ -47,6 +49,14 @@ curl -fsSL <raw-install-script-url> -o /tmp/install-codex.sh
 bash /tmp/install-codex.sh <your-repo-url>
 ```
 
+If the VPS already has a Codex login at `~/.codex/auth.json`, `bootstrap.sh` keeps it and does not overwrite it.
+
+If you are moving from another VPS and want automatic auth restore during install, use one of these:
+
+1. Put a base64 backup file at `/opt/installer-codex/auth/auth.json.base64`
+2. Or set `INSTALLER_CODEX_AUTH_B64` in `.env`
+3. Or set `INSTALLER_CODEX_AUTH_B64_FILE` in `.env`
+
 ## Environment
 
 Edit `/opt/installer-codex/.env`:
@@ -61,6 +71,8 @@ INSTALLER_CODEX_USER=root
 INSTALLER_CODEX_CLI_BIN=/usr/bin/codex
 INSTALLER_CODEX_SERVER_NAME=vps-main
 INSTALLER_CODEX_API_TOKEN=change-me
+INSTALLER_CODEX_AUTH_B64=
+INSTALLER_CODEX_AUTH_B64_FILE=
 ```
 
 Restart after edits:
@@ -132,9 +144,13 @@ Imports a previously exported auth payload. Request body:
 
 1. On the old VPS, call `GET /api/session/export`
 2. Store the returned `auth_b64` in your own secure private store
-3. Install this repo on the new VPS
-4. Call `POST /api/session/import`
-5. Restart `codex-backend.service` if needed
+3. On the new VPS, do one of these before `bash scripts/bootstrap.sh`:
+   - set `INSTALLER_CODEX_AUTH_B64` in `.env`
+   - set `INSTALLER_CODEX_AUTH_B64_FILE` in `.env`
+   - save the payload into `/opt/installer-codex/auth/auth.json.base64`
+4. Run `bash scripts/bootstrap.sh`
+5. The installer restores auth automatically if there is no existing `~/.codex/auth.json`
+6. If you prefer API restore instead, call `POST /api/session/import`
 
 This reduces repeated login prompts, but re-auth can still be required if the token expires, is revoked, or OpenAI requests a fresh login.
 
