@@ -17,6 +17,8 @@ FIREBASE_SERVERS_PATH="${INSTALLER_CODEX_FIREBASE_SERVERS_PATH:-codex_servers}"
 HEARTBEAT_SECONDS="${INSTALLER_CODEX_FIREBASE_HEARTBEAT_SECONDS:-30}"
 API_TOKEN="${INSTALLER_CODEX_API_TOKEN:-change-me}"
 PUBLIC_BASE_URL="${INSTALLER_CODEX_PUBLIC_BASE_URL:-}"
+ENABLE_QUICK_TUNNEL="${INSTALLER_CODEX_ENABLE_QUICK_TUNNEL:-true}"
+QUICK_TUNNEL_STATE_FILE="${INSTALLER_CODEX_QUICK_TUNNEL_STATE_FILE:-/opt/installer-codex/state/quick_tunnel_url.txt}"
 
 if [[ -z "$SERVER_ID" ]]; then
   if command -v hostname >/dev/null 2>&1; then
@@ -32,6 +34,15 @@ if [[ -z "$FIREBASE_DB_URL" ]]; then
 fi
 
 detect_public_url() {
+  if [[ "$ENABLE_QUICK_TUNNEL" == "true" ]] && [[ -f "$QUICK_TUNNEL_STATE_FILE" ]]; then
+    local quick_tunnel_url
+    quick_tunnel_url="$(tr -d '\r\n' < "$QUICK_TUNNEL_STATE_FILE")"
+    if [[ -n "$quick_tunnel_url" ]]; then
+      printf '%s' "$quick_tunnel_url"
+      return 0
+    fi
+  fi
+
   if [[ -n "$PUBLIC_BASE_URL" ]]; then
     printf '%s' "$PUBLIC_BASE_URL"
     return 0

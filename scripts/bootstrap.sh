@@ -10,6 +10,7 @@ CODEX_HOME="${HOME}/.codex"
 AUTH_FILE="${CODEX_HOME}/auth.json"
 NGINX_SITE_PATH="/etc/nginx/sites-available/installer-codex"
 NGINX_ENABLED_PATH="/etc/nginx/sites-enabled/installer-codex"
+QUICK_TUNNEL_SCRIPT_PATH="/usr/local/bin/installer-codex-quick-tunnel"
 
 log() {
   printf '[installer-codex] %s\n' "$1"
@@ -69,6 +70,30 @@ restore_codex_auth() {
   chmod 600 "$AUTH_FILE"
 }
 
+install_cloudflared() {
+  if command -v cloudflared >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local arch download_url
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64)
+      download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+      ;;
+    aarch64|arm64)
+      download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+      ;;
+    *)
+      log "Unsupported architecture for cloudflared auto-install: $arch"
+      return 1
+      ;;
+  esac
+
+  curl -LfsS "$download_url" -o /usr/local/bin/cloudflared
+  chmod +x /usr/local/bin/cloudflared
+}
+
 setup_nginx() {
   if [[ "${INSTALLER_CODEX_ENABLE_NGINX:-true}" != "true" ]]; then
     log "Skipping nginx setup because INSTALLER_CODEX_ENABLE_NGINX is not true."
@@ -109,6 +134,21 @@ EOF
   fi
 
   log "Nginx reverse proxy is ready on port 80."
+}
+
+setup_quick_tunnel() {
+  if [[ "${INSTALLER_CODEX_ENABLE_QUICK_TUNNEL:-true}" != "true" ]]; then
+    log "Skipping Quick Tunnel because INSTALLER_CODEX_ENABLE_QUICK_TUNNEL is not true."
+    return 0
+  fi
+
+  install_cloudflared
+  install -m 0644 "$APP_ROOT/systemd/codex-quick-tunnel.service" /etc/systemd/system/codex-quick-tunnel.service
+  install -m 0755 "$APP_ROOT/scripts/run_quick_tunnel.sh" "$QUICK_TUNNEL_SCRIPT_PATH"
+  systemctl daemon-reload
+  systemctl enable codex-quick-tunnel.service
+  systemctl restart codex-quick-tunnel.service
+  log "Cloudflare Quick Tunnel service is running."
 }
 
 setup_firebase_heartbeat() {
@@ -155,6 +195,7 @@ systemctl enable codex-session.service
 systemctl restart codex-session.service
 systemctl restart codex-backend.service
 setup_nginx
+setup_quick_tunnel
 setup_firebase_heartbeat
 
 log "Bootstrap complete."

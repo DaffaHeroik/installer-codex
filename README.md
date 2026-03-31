@@ -7,6 +7,7 @@
 - Ubuntu installer for a fresh VPS
 - `systemd` services for backend startup and tmux session bootstrapping
 - automatic `nginx` reverse proxy on port `80`
+- optional Cloudflare Quick Tunnel with auto-updated URL
 - Firebase auto-registration and heartbeat for server discovery
 - FastAPI backend for:
   - server status
@@ -28,6 +29,7 @@
   - check server health
   - import/export `~/.codex/auth.json`
 - `nginx` exposes the app on standard web port `80`, so the APK can use `http://YOUR_VPS_IP`
+- Quick Tunnel can publish a public `trycloudflare.com` URL even when your VPS inbound ports are blocked
 - the VPS registers itself into Firebase so the APK can auto-discover it
 - If the VPS is offline, your app should show `No server available`
 
@@ -85,6 +87,8 @@ INSTALLER_CODEX_FIREBASE_AUTH=
 INSTALLER_CODEX_FIREBASE_SERVERS_PATH=codex_servers
 INSTALLER_CODEX_FIREBASE_HEARTBEAT_SECONDS=30
 INSTALLER_CODEX_SERVER_ID=
+INSTALLER_CODEX_ENABLE_QUICK_TUNNEL=true
+INSTALLER_CODEX_QUICK_TUNNEL_STATE_FILE=/opt/installer-codex/state/quick_tunnel_url.txt
 ```
 
 Restart after edits:
@@ -171,6 +175,14 @@ http://YOUR_VPS_IP:8787
 
 If your VPS provider has an external firewall panel, you still need to allow inbound `TCP 80`.
 
+If port `80` is blocked by your VPS provider, keep:
+
+```env
+INSTALLER_CODEX_ENABLE_QUICK_TUNNEL=true
+```
+
+Then the installer will run `cloudflared`, capture the current `https://*.trycloudflare.com` URL, and publish that URL into Firebase automatically. The APK will pick it up on the next refresh without manual input.
+
 ## Firebase registry format
 
 Each VPS writes one entry under:
@@ -193,6 +205,14 @@ Example payload:
   "summary": "Codex is ready on this VPS.",
   "auth_present": true,
   "tmux_session_exists": true
+}
+```
+
+When Quick Tunnel is enabled, `server_url` will look like:
+
+```json
+{
+  "server_url": "https://random-name.trycloudflare.com"
 }
 ```
 

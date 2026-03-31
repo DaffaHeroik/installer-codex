@@ -1,0 +1,14 @@
+[Unit]
+Description=installer-codex Cloudflare Quick Tunnel
+After=network.target codex-backend.service
+Wants=codex-backend.service
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/installer-codex/.env
+ExecStart=/usr/local/bin/installer-codex-quick-tunnel
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
