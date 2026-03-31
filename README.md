@@ -6,6 +6,7 @@
 
 - Ubuntu installer for a fresh VPS
 - `systemd` services for backend startup and tmux session bootstrapping
+- automatic `nginx` reverse proxy on port `80`
 - FastAPI backend for:
   - server status
   - device-auth login start/status
@@ -25,6 +26,7 @@
   - poll login state
   - check server health
   - import/export `~/.codex/auth.json`
+- `nginx` exposes the app on standard web port `80`, so the APK can use `http://YOUR_VPS_IP`
 - If the VPS is offline, your app should show `No server available`
 
 ## Important security note
@@ -73,6 +75,9 @@ INSTALLER_CODEX_SERVER_NAME=vps-main
 INSTALLER_CODEX_API_TOKEN=change-me
 INSTALLER_CODEX_AUTH_B64=
 INSTALLER_CODEX_AUTH_B64_FILE=
+INSTALLER_CODEX_PUBLIC_BASE_URL=
+INSTALLER_CODEX_ENABLE_NGINX=true
+INSTALLER_CODEX_NGINX_SERVER_NAME=_
 ```
 
 Restart after edits:
@@ -80,6 +85,7 @@ Restart after edits:
 ```bash
 systemctl restart codex-session.service
 systemctl restart codex-backend.service
+bash scripts/bootstrap.sh
 ```
 
 ## API
@@ -139,6 +145,24 @@ Imports a previously exported auth payload. Request body:
 7. App displays `login_url` and `device_code`
 8. User completes login in the phone browser
 9. App polls until `phase=completed`
+
+## Default access URL
+
+After `bash scripts/bootstrap.sh`, the installer also configures `nginx` and exposes the backend on port `80`.
+
+That means your APK should usually use:
+
+```text
+http://YOUR_VPS_IP
+```
+
+Instead of:
+
+```text
+http://YOUR_VPS_IP:8787
+```
+
+If your VPS provider has an external firewall panel, you still need to allow inbound `TCP 80`.
 
 ## VPS migration without re-login
 

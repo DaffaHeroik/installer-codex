@@ -8,6 +8,8 @@ STATE_DIR="$APP_ROOT/state"
 WORKSPACE_DIR="$APP_ROOT/workspace"
 CODEX_HOME="${HOME}/.codex"
 AUTH_FILE="${CODEX_HOME}/auth.json"
+NGINX_SITE_PATH="/etc/nginx/sites-available/installer-codex"
+NGINX_ENABLED_PATH="/etc/nginx/sites-enabled/installer-codex"
 
 log() {
   printf '[installer-codex] %s\n' "$1"
@@ -67,6 +69,48 @@ restore_codex_auth() {
   chmod 600 "$AUTH_FILE"
 }
 
+setup_nginx() {
+  if [[ "${INSTALLER_CODEX_ENABLE_NGINX:-true}" != "true" ]]; then
+    log "Skipping nginx setup because INSTALLER_CODEX_ENABLE_NGINX is not true."
+    return 0
+  fi
+
+  ensure_package nginx
+
+  cat > "$NGINX_SITE_PATH" <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${INSTALLER_CODEX_NGINX_SERVER_NAME:-_};
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://127.0.0.1:${INSTALLER_CODEX_PORT:-8787};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 60;
+    }
+}
+EOF
+
+  ln -sf "$NGINX_SITE_PATH" "$NGINX_ENABLED_PATH"
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl enable nginx
+  systemctl restart nginx
+
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow 80/tcp >/dev/null 2>&1 || true
+  fi
+
+  log "Nginx reverse proxy is ready on port 80."
+}
+
 mkdir -p "$STATE_DIR" "$WORKSPACE_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -95,5 +139,6 @@ systemctl enable codex-backend.service
 systemctl enable codex-session.service
 systemctl restart codex-session.service
 systemctl restart codex-backend.service
+setup_nginx
 
 log "Bootstrap complete."
