@@ -20,6 +20,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.TimeUnit
 
 
@@ -45,10 +46,16 @@ class MainActivity : AppCompatActivity() {
     private var selectedServerId: String? = null
     private var activeServer: ServerItem? = null
     private var latestLoginUrl: String? = null
+    private val refreshInFlight = AtomicBoolean(false)
+    private val overviewInFlight = AtomicBoolean(false)
+    private var isForeground = false
+    private var userSelectingServer = false
 
     private val poller = object : Runnable {
         override fun run() {
-            refreshServers(showToast = false)
+            if (isForeground && !userSelectingServer) {
+                refreshServers(showToast = false)
+            }
             handler.postDelayed(this, 7000)
         }
     }
@@ -68,10 +75,12 @@ class MainActivity : AppCompatActivity() {
         serverAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
         serverList.adapter = serverAdapter
         serverList.setOnItemClickListener { _, _, position, _ ->
-            val item = serverItems[position]
+            val item = serverItems.getOrNull(position) ?: return@setOnItemClickListener
+            userSelectingServer = true
             selectedServerId = item.serverId
             activeServer = item
             refreshOverview(showToast = true)
+            handler.postDelayed({ userSelectingServer = false }, 1500)
         }
 
         findViewById<Button>(R.id.refreshButton).setOnClickListener {
@@ -107,15 +116,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        isForeground = true
         handler.post(poller)
     }
 
     override fun onStop() {
+        isForeground = false
         handler.removeCallbacks(poller)
         super.onStop()
     }
 
     private fun refreshServers(showToast: Boolean) {
+        if (!refreshInFlight.compareAndSet(false, true)) {
+            return
+        }
+
         val request = Request.Builder()
             .url(FIREBASE_SERVERS_URL)
             .get()
@@ -137,6 +152,7 @@ class MainActivity : AppCompatActivity() {
 
                 selectedServerId = activeServer?.serverId ?: selectedServerId
                 refreshOverview(showToast = showToast)
+                refreshInFlight.set(false)
             },
             onFailure = {
                 runOnUiThread {
@@ -150,6 +166,7 @@ class MainActivity : AppCompatActivity() {
                     serverAdapter.clear()
                     latestLoginUrl = null
                 }
+                refreshInFlight.set(false)
             },
             toastErrors = showToast,
         )
@@ -200,8 +217,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshOverview(showToast: Boolean) {
+        if (!overviewInFlight.compareAndSet(false, true)) {
+            return
+        }
+
         val server = activeServer
         if (server == null) {
+            overviewInFlight.set(false)
             runOnUiThread {
                 availabilityText.text = getString(R.string.availability_fmt, "no_server_available")
                 summaryText.text = getString(R.string.summary_fmt, "No server available")
@@ -219,6 +241,7 @@ class MainActivity : AppCompatActivity() {
             onSuccess = { body ->
                 renderOverview(server, body)
                 if (showToast) toast("Connected to ${server.serverName}")
+                overviewInFlight.set(false)
             },
             onFailure = {
                 runOnUiThread {
@@ -230,6 +253,7 @@ class MainActivity : AppCompatActivity() {
                     loginUrlText.text = getString(R.string.login_url_fmt, "-")
                     latestLoginUrl = null
                 }
+                overviewInFlight.set(false)
             },
             toastErrors = showToast,
         )
@@ -353,7 +377,14 @@ class MainActivity : AppCompatActivity() {
                     val rawBody = response.body?.string().orEmpty().ifBlank { "{}" }.let {
                         if (it == "null") "{}" else it
                     }
-                    onSuccess(JSONObject(rawBody))
+                    try {
+                        onSuccess(JSONObject(rawBody))
+                    } catch (_: Exception) {
+                        onFailure?.invoke()
+                        if (toastErrors) {
+                            runOnUiThread { toast("Invalid server response") }
+                        }
+                    }
                 }
             }
         })
